@@ -1,0 +1,140 @@
+---
+title: "White Extremist - Ideology Forum"
+author: "Christopher Junk"
+date: "5/14/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(rvest)
+library(tidyverse)
+library(tidytext)
+library(stringr)
+```  
+  
+  The first step in this process is generating a URL for each page of the forum. Each page has 10 posts, and
+as of the time of starting this project (5/1/2019). The first post's URL is the website's base URL followed by the forum ID number. All subsequent pages are numbered with a "-#" before the final forward-slash. I use a simple for loop to generate a vector of all the URLs in the forum. Next, I make an empty dataframe to put the scraped information into. I gather the following:  
+
+  1. Username  
+  1. Date  
+  1. Time  
+  1. Text  
+  
+```{r URLs and structure DF, cache=T}
+#generate a url for each page of the ideology and philosophy forum 
+ideo_philo_urls <- c("https://www.stormfront.org/forum/t451603/")
+
+#generate a url for each page 
+for(i in 2:502){
+  ideo_philo_urls <- c(ideo_philo_urls, paste0("https://www.stormfront.org/forum/t451603-", 
+                                               i,
+                                               "/"))
+}
+
+ideology_forum <- data.frame(user = c(),
+                             date = c(),
+                             time = c(),
+                             text = c())
+```  
+  
+Now that I have all the URLs of the forum pages in a vector and an empty dataframe to save them in execute the following for loop to scrape all of the data from the forum and put it into a dataframe including the variables mentioned above. I scrape the data in 3 parts: the text itself, the date and time together, and then the usernames. The corresponding parts of the webpage scraping are labeled in the code below. I use the [stringr](https://github.com/tidyverse/stringr) package to extract the data that I want.   
+  
+In the current date of compilation the last forum page does not have a full 10 comments but the comment extraction temporary object still has a length of 10 while the date, time, and user vectors have fewer than 10. To avoid this mistake causing an error and haulting the knit of the document I specify that the loop adds the new posts to the full dataframe for all loops except the last one. I add the last set of posts into the dataframe separately. 
+
+```{r Scrape from  HTML, cache=T}
+for(i in 1:length(ideo_philo_urls)){
+  page <- read_html(url(ideo_philo_urls[i]))
+  
+#read the text from the posts 
+  page_text_prelim <- page %>% 
+    html_nodes("#posts .alt1") %>% 
+    html_text()
+    
+#extract the text from the posts. Every other index in this vector is the post, with the remaining indices being missing. 
+  page_text <- page_text_prelim[seq(1, 20, 2)]
+  
+  
+  page_date_time <- page %>% 
+    html_nodes("#posts .thead:nth-child(1)") %>% 
+    html_text() 
+  
+  page_date_time_prelim <- page_date_time %>% 
+                           data.frame() %>% 
+                           janitor::clean_names() %>% 
+                           mutate(date = stringr::str_extract(x, 
+                                                              "\\d{2}\\-\\d{2}\\-\\d{4}"),
+                                  time = stringr::str_extract(x, 
+                                                              "\\d{2}\\:\\d{2}\\s[A-Z]{2}")) %>% 
+                           filter(!is.na(date)) %>%  
+                           select(date,
+                                  time)
+  
+  page_date <- as.vector(page_date_time_prelim$date)
+  page_time <- as.vector(page_date_time_prelim$time)
+  
+  page_user_prelim <- page %>% 
+                      html_nodes("#posts .alt2") %>% 
+                      html_text() %>% 
+                      data.frame() %>% 
+                      janitor::clean_names() %>% 
+                      mutate(text = as.character(x),
+                             user_time_detect = as.numeric(stringr::str_detect(text,
+                                                             "Posts:")),
+                             user = stringr::str_extract(text,
+                                       "([A-z0-9]+.)+")) %>% 
+                      filter(user_time_detect == 1) %>% 
+                      select(user)
+  
+  page_user <- as.vector(page_user_prelim$user)
+  
+#as of 5/6/2019 this errors on the final loop because the last page only has 7 posts and the page_date and page_time. I have the following if condition to prevent the last loop from erroring. 
+  if(i < 502){
+  
+  page_df <- data.frame(user = as.character(page_user),
+                        date = as.character(page_date),
+                        time = as.character(page_time), 
+                        text = as.character(page_text))
+
+  
+  ideology_forum <- rbind(ideology_forum, page_df)
+  }
+}
+
+#This deals with that last loop that failed 
+
+page_text <- as.vector(na.omit(page_text))
+page_df <- data.frame(user = as.character(page_user),
+                      date = as.character(page_date),
+                      time = as.character(page_time), 
+                      text = as.character(page_text))
+
+
+ideology_forum <- rbind(ideology_forum, page_df)
+```
+
+
+```{r Clean scraped data, cache=T}
+#Create an ID that matches all the post numbers from the forum. This way I can spot check if necessary. 
+ideology_forum <- ideology_forum %>% 
+                  mutate(id = seq_along(user)) #ID the comments so they match with the comment number on the website
+
+#These posts caused the stringr functions below to hang and make R crash.
+ideology_forum_removed <- ideology_forum[-c(3294, 3481, 3552, 4102, 4308, 4434, 4908, 5015),]
+ 
+ cleaning <- ideology_forum_removed %>% 
+             mutate(text_nore = stringr::str_replace_all(text, 
+                                                         "Re: National Socialism",
+                                                         ""),
+                    text_noquote = stringr::str_replace_all(text_nore, 
+                                                            "Quote.(\\n)*.*(\\n)*((.*)|(\\n*))*\\n{2}",
+                                                            ""),
+                    text_nobreak = stringr::str_replace_all(text_noquote,
+                                                            "\\c*",
+                                                            ""), 
+                    text_nopunct = stringr::str_replace_all(text_nobreak,
+                                                            "[[:punct:]]*",
+                                                            ""))
+```
+

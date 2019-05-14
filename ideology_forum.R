@@ -82,7 +82,7 @@ for(i in 1:length(ideo_philo_urls)){
   
   ideology_forum <- rbind(ideology_forum, page_df)
 }
-
+##########################################################################################################
 #This deals with that last loop that failed 
 
 page_text <- as.vector(na.omit(page_text))
@@ -93,18 +93,24 @@ page_df <- data.frame(user = as.character(page_user),
 
 
 ideology_forum <- rbind(ideology_forum, page_df)
-# 
-# cleaning <- ideology_forum %>% 
-#             mutate(text_nore = stringr::str_replace_all(text, 
-#                                                         "Re: National Socialism",
-#                                                         ""),
-#                    text_noquote = stringr::str_replace_all(text_nore, 
-#                                                            "Quote.(\\n)*.*(\\n)*((.*)|(\\n*))*\\n{2}",
-#                                                            ""),
-#                    text_nobreak = stringr::str_replace_all(text_noquote,
-#                                                            "\\c*",
-#                                                            ""), 
-#                    text_nopunct = stringr::str_replace_all(text_nobreak,
-#                                                            "[[:punct:]]*",
-#                                                            ""))
+ideology_forum <- ideology_forum %>% 
+                  mutate(id = seq_along(user)) #ID the comments so they match with the comment number on the website
+
+ideology_forum_removed <- ideology_forum[-c(3294, 3481, 3552, 4102, 4308, 4434, 4908, 5015),]
+ 
+ cleaning <- ideology_forum_removed %>% 
+             mutate(text_nore = stringr::str_replace_all(text, 
+                                                         "Re: National Socialism",
+                                                         ""),
+                    text_noquote = stringr::str_replace_all(text_nore, 
+                                                            "Quote.(\\n)*.*(\\n)*((.*)|(\\n*))*\\n{2}",
+                                                            ""),
+                    text_nobreak = stringr::str_replace_all(text_noquote,
+                                                            "\\c*",
+                                                            ""), 
+                    text_nopunct = stringr::str_replace_all(text_nobreak,
+                                                            "[[:punct:]]*",
+                                                            ""))
+##########################################################################################################
+#Analysis setup 
 
