@@ -118,7 +118,7 @@ ideology_forum <- rbind(ideology_forum, page_df)
 ```{r Clean scraped data, cache=T}
 #Create an ID that matches all the post numbers from the forum. This way I can spot check if necessary. 
 ideology_forum <- ideology_forum %>% 
-                  mutate(id = seq_along(user)) #ID the comments so they match with the comment number on the website
+                  mutate(id = seq_along(user))
 
 #These posts caused the stringr functions below to hang and make R crash.
 ideology_forum_removed <- ideology_forum[-c(3294, 3481, 3552, 4102, 4308, 4434, 4908, 5015),]

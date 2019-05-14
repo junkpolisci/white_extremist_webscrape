@@ -477,7 +477,7 @@ page_df &lt;- data.frame(user = as.character(page_user),
 ideology_forum &lt;- rbind(ideology_forum, page_df)</code></pre>
 <pre class="r"><code>#Create an ID that matches all the post numbers from the forum. This way I can spot check if necessary. 
 ideology_forum &lt;- ideology_forum %&gt;% 
-                  mutate(id = seq_along(user)) #ID the comments so they match with the comment number on the website
+                  mutate(id = seq_along(user))
 
 #These posts caused the stringr functions below to hang and make R crash.
 ideology_forum_removed &lt;- ideology_forum[-c(3294, 3481, 3552, 4102, 4308, 4434, 4908, 5015),]
