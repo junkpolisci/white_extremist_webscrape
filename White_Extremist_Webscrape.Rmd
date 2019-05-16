@@ -1,0 +1,318 @@
+---
+title: "White Extremist - Ideology Forum"
+author: "Christopher Junk"
+date: "5/14/2019"
+output: html_document
+fig_width: 30 
+fig_height: 30
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(rvest)
+library(tidyverse)
+library(tidytext)
+library(stringr)
+library(RColorBrewer)
+```  
+  
+# Scrape the Data 
+
+### Generate a Structure for Scraping 
+  
+  The first step in this process is generating a URL for each page of the forum. Each page has 10 posts, and
+as of the time of starting this project (5/1/2019). The first post's URL is the website's base URL followed by the forum ID number. All subsequent pages are numbered with a "-#" before the final forward-slash. I use a simple for loop to generate a vector of all the URLs in the forum. Next, I make an empty dataframe to put the scraped information into. I gather the following:  
+
+  1. Username  
+  1. Date  
+  1. Time  
+  1. Text  
+  
+```{r URLs and structure DF, cache=T}
+#generate a url for each page of the ideology and philosophy forum 
+ideo_philo_urls <- c("https://www.stormfront.org/forum/t451603/")
+
+#generate a url for each page 
+for(i in 2:502){
+  ideo_philo_urls <- c(ideo_philo_urls, paste0("https://www.stormfront.org/forum/t451603-", 
+                                               i,
+                                               "/"))
+}
+
+ideology_forum <- data.frame(user = c(),
+                             date = c(),
+                             time = c(),
+                             text = c())
+```  
+  
+### Loop through the URLs to Scrape the Posts 
+  
+Now that I have all the URLs of the forum pages in a vector and an empty dataframe to save them in execute the following for loop to scrape all of the data from the forum and put it into a dataframe including the variables mentioned above. I scrape the data in 3 parts: the text itself, the date and time together, and then the usernames. The corresponding parts of the webpage scraping are labeled in the code below. I use the [stringr](https://github.com/tidyverse/stringr) package to extract the data that I want.   
+  
+In the current date of compilation the last forum page does not have a full 10 comments but the comment extraction temporary object still has a length of 10 while the date, time, and user vectors have fewer than 10. To avoid this mistake causing an error and haulting the knit of the document I specify that the loop adds the new posts to the full dataframe for all loops except the last one. I add the last set of posts into the dataframe separately. 
+
+```{r Scrape from  HTML, cache=T}
+for(i in 1:length(ideo_philo_urls)){
+  page <- read_html(url(ideo_philo_urls[i]))
+  
+#read the text from the posts 
+  page_text_prelim <- page %>% 
+    html_nodes("#posts .alt1") %>% 
+    html_text()
+    
+#extract the text from the posts. Every other index in this vector is the post, with the remaining indices being missing. 
+  page_text <- page_text_prelim[seq(1, 20, 2)]
+  
+  
+  page_date_time <- page %>% 
+    html_nodes("#posts .thead:nth-child(1)") %>% 
+    html_text() 
+  
+  page_date_time_prelim <- page_date_time %>% 
+                           data.frame() %>% 
+                           janitor::clean_names() %>% 
+                           mutate(date = stringr::str_extract(x, 
+                                                              "\\d{2}\\-\\d{2}\\-\\d{4}"),
+                                  time = stringr::str_extract(x, 
+                                                              "\\d{2}\\:\\d{2}\\s[A-Z]{2}")) %>% 
+                           filter(!is.na(date)) %>%  
+                           select(date,
+                                  time)
+  
+  page_date <- as.vector(page_date_time_prelim$date)
+  page_time <- as.vector(page_date_time_prelim$time)
+  
+  page_user_prelim <- page %>% 
+                      html_nodes("#posts .alt2") %>% 
+                      html_text() %>% 
+                      data.frame() %>% 
+                      janitor::clean_names() %>% 
+                      mutate(text = as.character(x),
+                             user_time_detect = as.numeric(stringr::str_detect(text,
+                                                             "Posts:")),
+                             user = stringr::str_extract(text,
+                                       "([A-z0-9]+.)+")) %>% 
+                      filter(user_time_detect == 1) %>% 
+                      select(user)
+  
+  page_user <- as.vector(page_user_prelim$user)
+  
+#as of 5/6/2019 this errors on the final loop because the last page only has 7 posts and the page_date and page_time. I have the following if condition to prevent the last loop from erroring. 
+  if(i < 502){
+  
+  page_df <- data.frame(user = as.character(page_user),
+                        date = as.character(page_date),
+                        time = as.character(page_time), 
+                        text = as.character(page_text))
+
+  
+  ideology_forum <- rbind(ideology_forum, page_df)
+  }
+}
+
+#This deals with that last loop that failed 
+
+page_text <- as.vector(na.omit(page_text))
+page_df <- data.frame(user = as.character(page_user),
+                      date = as.character(page_date),
+                      time = as.character(page_time), 
+                      text = as.character(page_text))
+
+
+ideology_forum <- rbind(ideology_forum, page_df)
+```
+
+### Clean the Scraped Data 
+
+The code below is cleaning the data captured above. There are several problems with irrelevant text in the posts. The first problem is that each post has the first three word-like objects as "Re: National Socialism" because that is the name of the forum. These three words are not relevant to actually discerning what is being discussed and is therefore removed. The second problem is that many of the posters quote each other and outside materials in their back and forth. In this project I am only interested in novel components of each post. Thus, I remove all quoted text from each post. The third problem is line breaks and other control characters. Fourth, I remove all punctuation from the text for more succinct analysis. 
+
+The column "text_nore" is the post itself without the initial indicator that it is a response to the forum. Removing the text in this context is pretty straightforward because I only care about exclusively one phrase that does not appear elsewhere. 
+
+The column "text_noquote" is the text of the post remaining from text_nore also minus the text in quotes. This was a rather challenging piece of text to address. There is an example post in its raw form below that shows just how tricky this part was to solve. The selected example has three quotes: the first names the user quoted, and the following two do not. These two quotes have an inconsistent form, and thus make it difficult to capture all possible different quotes with one regex pattern. However, enough things are the same to make it work. First, all quotes start with the word "Quote:", so I can easily identify the start of a quote. Second, all quotes end with two line breaks "\\n\\n". In between those posts there are several words, control characters, and punctuation. In order to capture these patterns I use the greediest (and laziest) approach that works: match 0 or more of a pattern that may or may not exist within a quote until the two line breaks are matched at the end of the quote. This ultimately works on all quote types, and the final regex form can be seen below. 
+
+```{r Example Post, cache=T, echo=F}
+as.character(ideology_forum$text[87])
+```
+
+The problem of removing quotes posed another 'unsolvable' problem: some posts caused the mutate line for creating "text_noquote" to hang and never finish no matter how long it ran. I isolated 8 posts that were causing this problem via a manual binary sort until I identified the posts causing the problem. The only solution seems to be removing these posts, which is unfortunate. However, I have just over 5000 comments, so it is not __THAT__ big of a deal. 
+
+The final two problems are trivial to solve. I remove all control characters into the column "text_nobreak" with the "\\c" regex pattern. I remove all punctuation with the "[[:punct:]]" regex pattern. Therefore, the final column created in the code chunk below, text_nopunct, has the cleanest form. 
+
+```{r Clean scraped data, cache=T, echo=F, message=F}
+#Create an ID that matches all the post numbers from the forum. This way I can spot check if necessary. 
+ideology_forum <- ideology_forum %>% 
+                  mutate(id = seq_along(user))
+
+#These posts caused the stringr functions below to hang and make R crash.
+ideology_forum_removed <- ideology_forum[-c(3294, 3481, 3552, 4102, 4308, 4434, 4908, 5015),]
+ 
+ cleaning <- ideology_forum_removed %>% 
+             mutate(text_nore = stringr::str_replace_all(text, 
+                                                         "Re: National Socialism",
+                                                         ""),
+                    text_noquote = stringr::str_replace_all(text_nore, 
+                                                            "Quote.(\\n)*.*(\\n)*((.*)|(\\n*))*\\n{2}",
+                                                            ""),
+                    text_nobreak = stringr::str_replace_all(text_noquote,
+                                                            "\\c*",
+                                                            ""), 
+                    text_nopunct = stringr::str_replace_all(text_nobreak,
+                                                            "[[:punct:]]*",
+                                                            ""),
+                    length = str_count(text_nopunct, 
+                                       "\\w+"))
+```
+
+# Summary Visuals 
+
+```{r User Frequency Plots, cache=T, fig.height=20, fig.width=20}
+user_freq <-   cleaning %>% 
+               count(user, sort = T) %>% 
+               mutate(user = reorder(user, n))
+user_mean_length <- cleaning %>% 
+                    group_by(user) %>% 
+                    summarise(mean_length = mean(length)) %>% 
+                    arrange(desc(mean_length))
+user <- left_join(user_freq, user_mean_length)
+
+user <- user %>% 
+        mutate(length_mean_10 = round(mean_length%/%10, digits = 0),
+               user = reorder(user, n))
+
+user %>% 
+  slice(1:50) %>% 
+  ggplot(aes(user,
+             n)) + 
+  geom_col(aes(fill = length_mean_10)) +
+  scale_fill_gradient(low = 'white', 
+                      high = 'black') +
+  coord_flip() + 
+  labs(title = "Top 50 Users by Number of Posts",
+       x = "Users",
+       y = "Number of Posts",
+       fill = "Mean Words per Post / 10") +
+  theme_bw() +
+  theme(axis.text = element_text(size = 20),
+        axis.title = element_text(size = 30),
+        title = element_text(size = 35), 
+        plot.title = element_text(hjust = .5),
+        legend.text = element_text(size = 20),
+        legend.key.size = unit(7, 'lines'),
+        legend.justification=c(1,0),
+        legend.direction = 'horizontal', 
+        legend.position=c(1,0),
+        legend.title.align = .5,
+        legend.background = element_rect(fill = NA))
+
+```
+
+```{r Scatterplot of Words per Post, echo=F, cache=T, fig.height=15, fig.width=15}
+user %>% 
+  filter(n >= 4) %>% 
+  ggplot(aes(x = n, 
+             y = length_mean_10)) +
+  geom_point(size = 5) + 
+  labs(title = "Scatterplot of Words per Post",
+       y = "Mean Words per Post / 10",
+       x = "Number of Posts",
+       caption = "135 users of the 585 meet the criteria of having posted four or more times.") + 
+  theme_bw() + 
+  theme(axis.text = element_text(size = 20),
+        axis.title = element_text(size = 30),
+        title = element_text(size = 35), 
+        plot.title = element_text(hjust = .5))
+```
+
+
+```{r Unnest into Unigram Tidy Text Format, cache=T}
+data("stop_words")
+library(SnowballC)
+
+unigram <- cleaning %>% 
+         mutate(text_clean = str_replace_all(text_nopunct, 
+                                             "[Nn]ational\\s[Ss]ocialism[A-z]*", 
+                                             "ns") %>% 
+                             str_replace_all("[Nn]ational\\s[Ss]ocialist[A-z]*",
+                                             "ns") %>% 
+                             str_replace_all("[Aa]dolf(\\s)*[Hh]itler[A-z]*",
+                                             "hitler") %>% 
+                             str_replace_all(".*[Hh]itler",
+                                             "hitler") %>% 
+                             str_replace_all("[Hh]itler.*",
+                                             "hitler") %>%  
+                             str_replace_all("[A-z]*[Mm]ein(\\s)*[Kk]ampf[A-z]*",
+                                             "meinkampf")) %>% 
+         unnest_tokens(word, 
+                       text_clean) %>% 
+         select(user, 
+                time,
+                date,
+                word,
+                id) %>%
+         anti_join(stop_words)
+
+unigram <- unigram %>% 
+         mutate(word_stem = wordStem(word),
+                word_stem = ifelse(word == 'hitler' | word == 'ns' | word == 'meinkampf',
+                                   word,
+                                   word_stem))
+unigram %>% 
+  count(word, sort = T) %>% 
+  mutate(word = reorder(word, n)) %>% 
+  slice(1:50) %>% 
+  ggplot(aes(y = n,
+             x = word)) +
+  geom_col() +
+  coord_flip()
+```
+
+```{r Unnest into Bigram Tidy Text Format, cache=T}
+bigram <- cleaning %>% 
+         mutate(text_clean = str_replace_all(text_nopunct, 
+                                             "[Nn]ational\\s[Ss]ocialism[A-z]*", 
+                                             "ns") %>% 
+                             str_replace_all("[Nn]ational\\s[Ss]ocialist[A-z]*",
+                                             "ns") %>% 
+                             str_replace_all("[Aa]dolf(\\s)*[Hh]itler[A-z]*",
+                                             "hitler") %>% 
+                             str_replace_all(".*[Hh]itler",
+                                             "hitler") %>% 
+                             str_replace_all("[Hh]itler.*",
+                                             "hitler") %>%  
+                             str_replace_all("[A-z]*[Mm]ein(\\s)*[Kk]ampf[A-z]*",
+                                             "meinkampf") %>% 
+                             str_replace_all("[Nn]ationalis[tm]",
+                                             "national")) %>% 
+         unnest_tokens(bigram, 
+                       text_clean,
+                       token = "ngrams", 
+                       n = 2) %>% 
+         select(user, 
+                time,
+                date,
+                bigram,
+                id)
+
+bigram_split <- bigram %>% 
+                separate(bigram, c("word1", 
+                                   "word2"), 
+                         sep = " ",
+                         remove = F) %>% 
+                filter(!word1 %in% stop_words$word) %>% 
+                filter(!word1 %in% stop_words$word) %>% 
+                filter(!is.na(bigram))
+
+bigram_sorted <- bigram_split %>% 
+          count(bigram, sort = T) %>% 
+          mutate(bigram = reorder(bigram, n))
+
+bigram_sorted %>% 
+  slice(1:50) %>% 
+  ggplot(aes(y = n,
+             x = bigram)) +
+  geom_col() +
+  coord_flip() + 
+  theme_bw()
+```
+
