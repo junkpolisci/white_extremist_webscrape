@@ -166,7 +166,8 @@ ideology_forum_removed <- ideology_forum[-c(3294, 3481, 3552, 4102, 4308, 4434, 
 
 # Summary Visuals 
 
-```{r User Frequency Plots, cache=T, fig.height=20, fig.width=20}
+This section will provide some visualizations of who is posting, what they are saying, and how much is in their post. The first figure below shows some simple summary information about the top 50 posters. As is obvious from the graph kayden is by far the most frequent poster, followed up by Kaiserreich and John Hawkwood. There is a large discrepency between the top threee themselves, and the top three and the rest of the posters. Each of the top three are separated by about 100 posts, and only 11 users have posted more than 100 times. Another interesting note from this figure is that the top posters are certainly not examples of 'post frequently, but post little.' The bars are all shaded with darker shades indicating more words per post (numbers labels the bars are length/10), and each 100+ poster has at least 60 words per post, indicating that they are contributing in some meaningful way to the debate in the forum. 
+```{r User Frequency Plots, cache=T, fig.height=20, fig.width=20, echo=F,message=F}
 user_freq <-   cleaning %>% 
                count(user, sort = T) %>% 
                mutate(user = reorder(user, n))
@@ -187,6 +188,9 @@ user %>%
   geom_col(aes(fill = length_mean_10)) +
   scale_fill_gradient(low = 'white', 
                       high = 'black') +
+  geom_text(aes(label = length_mean_10),
+            size = 10,
+            hjust = -.25) +
   coord_flip() + 
   labs(title = "Top 50 Users by Number of Posts",
        x = "Users",
@@ -207,12 +211,26 @@ user %>%
 
 ```
 
+The following figure shows the relationship, or lack thereof, between the number of posts and the length of the posts. Using the full dataset the OLS line has basically no relationship between frequency and length of posts, an OLS coefficient of only 0.008. It seems that for those underneath the threshold of 100 posts the relationship is much stronger and postive, but after subsetting the same plot (not shown here) I find that excluding the top posters does not make the relationship stronger.  
+
 ```{r Scatterplot of Words per Post, echo=F, cache=T, fig.height=15, fig.width=15}
 user %>% 
   filter(n >= 4) %>% 
   ggplot(aes(x = n, 
              y = length_mean_10)) +
   geom_point(size = 5) + 
+  geom_smooth(method = "lm") + 
+  annotate(geom = 'text', 
+           x = 300,
+           y = 80, 
+           label = "Slope of OLS line is 0.008",
+           size = 15) +
+  geom_text(aes(label = ifelse(n >= 100,
+                               as.character(user),
+                               ""),
+                size = 25),
+            hjust = .5, 
+            vjust = -1) + 
   labs(title = "Scatterplot of Words per Post",
        y = "Mean Words per Post / 10",
        x = "Number of Posts",
@@ -221,7 +239,115 @@ user %>%
   theme(axis.text = element_text(size = 20),
         axis.title = element_text(size = 30),
         title = element_text(size = 35), 
-        plot.title = element_text(hjust = .5))
+        plot.title = element_text(hjust = .5),
+        legend.position = 'none')
+  
+```
+
+```{r Timeline of Top Poster Frequency Setup, cache=T, echo=T}
+user_time <- cleaning %>% 
+             separate(date,
+                      into = c('m', 'd', 'y'),
+                      sep = '-',
+                      remove = F) %>% 
+             mutate(date = as.Date(ISOdate(y, m, d)),
+                    ym = paste0(y, "-", m)) %>% 
+             group_by(user, ym) %>% 
+             add_count(user, 
+                       name = "n_posts") %>% 
+             summarise(mean_length = mean(length),
+                       n_posts = mean(n_posts)) %>% 
+             arrange(ym) %>% 
+             ungroup()
+
+user_100_time <- user_time %>% 
+              mutate(user = as.character(user)) %>% 
+              group_by(user) %>% 
+              mutate(total_posts = sum(n_posts)) %>% 
+              filter(total_posts >= 100)
+
+top_users <- unique(user_100_time$user)
+top_users_1507 <- c()
+for(i in 1:137){
+  top_users_1507 <- c(top_users_1507, top_users)
+}
+
+posts_time <- cleaning %>% 
+              separate(date,
+                      into = c('m', 'd', 'y'),
+                      sep = '-',
+                      remove = F) %>% 
+              mutate(date = as.Date(ISOdate(y, m, d)),
+                    ym = paste0(y, "-", m)) %>% 
+              group_by(date) %>% 
+              add_count(user, 
+                       name = "n_posts") %>% 
+              summarise(mean_length = mean(length),
+                       n_posts = mean(n_posts)) %>% 
+              arrange(ym) %>% 
+              ungroup()
+
+timeline <- data.frame(year = 2008:2019) %>% 
+            uncount(12) %>% 
+            group_by(year) %>% 
+            mutate(month = sprintf("%02d", seq_along(year)),
+                   ym = paste0(year, "-", month)) %>% 
+            filter(ym <= "2019-05") %>% 
+            ungroup() %>% 
+            select(ym) %>% #137 total months
+            uncount(length(top_users)) %>%  #11 top users * 137 possible months = 1507 user-months
+            mutate(user = top_users_1507)
+
+user_month <- left_join(timeline, user_time) %>% 
+              mutate(n_month = replace_na(n_posts,
+                                          0),
+                     mean_length = round(replace_na(mean_length,
+                                              0),
+                                         2),
+                     mean_length10 = round(mean_length/10,
+                                           2)) %>% 
+              group_by(user) %>% 
+              mutate(n_total = sum(n_month)) %>% 
+              ungroup() %>% 
+              select(ym,
+                     user,
+                     n_month,
+                     n_total,
+                     mean_length10) %>% 
+              arrange(user,
+                      ym, 
+                      n_total) %>% 
+              as.tbl()
+
+```
+
+```{r Top Users Timeline, fig.height=80, fig.width=50}
+user_month %>% 
+  filter(ym < "2012-01") %>% 
+  ggplot(aes(x = as.Date(paste0(ym, "-01")),
+             y = n_month,
+             group = 11)) +
+  geom_line(aes(size = mean_length10)) +
+  scale_x_date(date_breaks = "3 months",
+               date_labels = "%Y-%B") +
+  facet_grid(user ~ .) +
+  labs(title = "Top Posters pre-2012 Activity",
+       x = "Months",
+       y = "Posts per Month",
+       size = "Average Post Length") +
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90,
+                                   size = 50),
+        axis.text.y = element_text(size = 50),
+        axis.title = element_text(size = 50),
+        title = element_text(size = 80), 
+        plot.title = element_text(hjust = .5),
+        legend.text = element_text(size = 40),
+        legend.key.size = unit(7, 'lines'),
+        legend.title.align = .5,
+        legend.background = element_rect(fill = NA),
+        strip.text = element_text(size = 55,
+                                    angle = 90))
 ```
 
 
@@ -255,8 +381,19 @@ unigram <- cleaning %>%
 unigram <- unigram %>% 
          mutate(word_stem = wordStem(word),
                 word_stem = ifelse(word == 'hitler' | word == 'ns' | word == 'meinkampf',
-                                   word,
+                                   as.character(word),
                                    word_stem))
+unigram_top50 <- unigram %>% 
+                   count(word, sort = T) %>% 
+                   mutate(word = reorder(word, n)) %>% 
+                   slice(1:50) %>% 
+                   mutate(word_stem = wordStem(word),
+                          word_stem = ifelse(word == 'hitler' | word == 'ns' | word == 'meinkampf',
+                                             word,
+                                             word_stem))
+```
+
+```{r Unigram Frequency Chart, cache=T, echo=F, fig.width=20, fig.height=20 }
 unigram %>% 
   count(word, sort = T) %>% 
   mutate(word = reorder(word, n)) %>% 
@@ -264,7 +401,34 @@ unigram %>%
   ggplot(aes(y = n,
              x = word)) +
   geom_col() +
-  coord_flip()
+  coord_flip() + 
+  theme_bw() + 
+  labs(title = "Most Common Unstemmed Words",
+       x = "Word",
+       y = "Frequency") +
+  theme(axis.text = element_text(size = 20),
+        axis.title = element_text(size = 30),
+        title = element_text(size = 35), 
+        plot.title = element_text(hjust = .5))
+
+unigram %>% 
+  count(word_stem, sort = T) %>% 
+  mutate(word_stem = reorder(word_stem, n)) %>% 
+  slice(1:50) %>% 
+  ggplot(aes(y = n,
+             x = word_stem)) +
+  geom_col() +
+  coord_flip() + 
+  theme_bw() +
+  labs(title = "Most Common Stemmed Words",
+       x = "Word Stem",
+       y = "Frequency") +
+  theme(axis.text = element_text(size = 20),
+        axis.title = element_text(size = 30),
+        title = element_text(size = 35), 
+        plot.title = element_text(hjust = .5))
+
+
 ```
 
 ```{r Unnest into Bigram Tidy Text Format, cache=T}
@@ -314,5 +478,9 @@ bigram_sorted %>%
   geom_col() +
   coord_flip() + 
   theme_bw()
+```
+
+```{r Unigram Word and Word Stem comparison table }
+knitr::kable(unigram_top50 %>% select(-n))
 ```
 
