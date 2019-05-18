@@ -3,8 +3,6 @@ title: "White Extremist - Ideology Forum"
 author: "Christopher Junk"
 date: "5/14/2019"
 output: html_document
-fig_width: 30 
-fig_height: 30
 ---
 
 ```{r setup, include=FALSE}
@@ -244,7 +242,7 @@ user %>%
   
 ```
 
-```{r Timeline of Top Poster Frequency Setup, cache=T, echo=T}
+```{r Timeline of Top Poster Frequency Setup, cache=T, echo=F, message=F}
 user_time <- cleaning %>% 
              separate(date,
                       into = c('m', 'd', 'y'),
@@ -272,22 +270,21 @@ for(i in 1:137){
   top_users_1507 <- c(top_users_1507, top_users)
 }
 
-posts_time <- cleaning %>% 
+posts_day <- cleaning %>%
               separate(date,
                       into = c('m', 'd', 'y'),
                       sep = '-',
-                      remove = F) %>% 
+                      remove = F) %>%
               mutate(date = as.Date(ISOdate(y, m, d)),
-                    ym = paste0(y, "-", m)) %>% 
-              group_by(date) %>% 
-              add_count(user, 
-                       name = "n_posts") %>% 
+                     post = 1) %>%
+              group_by(date) %>%
               summarise(mean_length = mean(length),
-                       n_posts = mean(n_posts)) %>% 
-              arrange(ym) %>% 
+                        n_posts = sum(post),
+                        n_users = n_distinct(user)) %>%
+              arrange(date) %>%
               ungroup()
 
-timeline <- data.frame(year = 2008:2019) %>% 
+timeline_monthly <- data.frame(year = 2008:2019) %>% 
             uncount(12) %>% 
             group_by(year) %>% 
             mutate(month = sprintf("%02d", seq_along(year)),
@@ -298,7 +295,7 @@ timeline <- data.frame(year = 2008:2019) %>%
             uncount(length(top_users)) %>%  #11 top users * 137 possible months = 1507 user-months
             mutate(user = top_users_1507)
 
-user_month <- left_join(timeline, user_time) %>% 
+user_month <- left_join(timeline_monthly, user_time) %>% 
               mutate(n_month = replace_na(n_posts,
                                           0),
                      mean_length = round(replace_na(mean_length,
@@ -319,9 +316,86 @@ user_month <- left_join(timeline, user_time) %>%
                       n_total) %>% 
               as.tbl()
 
+timeline_daily <- data.frame(date = seq.Date(min(posts_day$date),
+                                      max(posts_day$date),
+                                      "day"))
+
+posts_daily <- left_join(timeline_daily, posts_day) %>% 
+              separate(date,
+                        into = c('y', 'm', 'd'),
+                        sep = '-',
+                        remove = F) %>% 
+               mutate(number_posts = ifelse(!is.na(n_posts),
+                                       n_posts,
+                                       0),
+                      number_users = ifelse(!is.na(n_users),
+                                            n_users,
+                                            0),
+                      mean_length10 = ifelse(!is.na(mean_length),
+                                             mean_length/10,
+                                             0),
+                      ym = paste0(y, "-", m) ) %>% 
+                arrange(date)
+
 ```
 
-```{r Top Users Timeline, fig.height=80, fig.width=50}
+```{r Forum History Timeline, cache=T, echo=F, fig.width= 50, fig.height=50, messages=F, warning=F}
+posts_daily %>%
+  ggplot(aes(x = date,
+             y = number_posts)) + 
+  geom_col(aes(color = number_users),
+            size = 5) + 
+  scale_color_gradient(low = 'white',
+                       high = 'black') +
+  scale_x_date(date_breaks = "3 months",
+               date_labels = "%Y-%B") +
+  theme_bw() + 
+  labs(title = "Full Forum Post History",
+       x = "Date",
+       y = "Number of Posts per Day", 
+       color = "Number of Users") + 
+  theme(axis.text.x = element_text(angle = 90,
+                                   size = 50),
+        axis.text.y = element_text(size = 50),
+        axis.title = element_text(size = 50),
+        title = element_text(size = 80), 
+        plot.title = element_text(hjust = .5),
+        legend.text = element_text(size = 40),
+        legend.key.size = unit(7, 'lines'),
+        legend.title.align = .5,
+        legend.background = element_rect(fill = NA),
+        legend.position=c(.85,.5))
+```
+
+```{r Number of Posts by Words per Post Scatterplot, cache=T, echo=F, messages=F, warning=F, fig.width= 20, fig.height=20}
+posts_daily %>%
+  ggplot(aes(x = mean_length/10,
+             y = number_posts)) + 
+  geom_point(aes(color = number_users),
+            size = 8) + 
+  scale_color_gradient(low = 'black',
+                       high = 'red') +
+  theme_bw() + 
+  labs(title = "Posts per Day by Words per Post",
+       x = "Words per Post / 10",
+       y = "Number of Posts per Day", 
+       color = "Number of Users") +
+  theme(axis.text.x = element_text(angle = 90,
+                                   size = 30),
+        axis.text.y = element_text(size = 30),
+        axis.title = element_text(size = 30),
+        title = element_text(size = 60), 
+        plot.title = element_text(hjust = .5),
+        legend.text = element_text(size = 20),
+        legend.title = element_text(size = 20),
+        legend.key.height = unit(3, 'lines'),
+        legend.title.align = .5,
+        legend.background = element_rect(fill = NA),
+        legend.position=c(.9,.5))
+```
+
+
+```{r Top Users Timeline, cache=T, fig.height=80, fig.width=50}
 user_month %>% 
   filter(ym < "2012-01") %>% 
   ggplot(aes(x = as.Date(paste0(ym, "-01")),
