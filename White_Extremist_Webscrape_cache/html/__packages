@@ -13,3 +13,7 @@ forcats
 tidytext
 SnowballC
 RColorBrewer
+qdapDictionaries
+qdapRegex
+qdapTools
+qdap

@@ -5,7 +5,7 @@ date: "5/14/2019"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
+```{r setup, include=FALSE, cache=T}
 knitr::opts_chunk$set(echo = TRUE)
 
 library(rvest)
@@ -160,6 +160,16 @@ ideology_forum_removed <- ideology_forum[-c(3294, 3481, 3552, 4102, 4308, 4434, 
                                                             ""),
                     length = str_count(text_nopunct, 
                                        "\\w+"))
+ 
+user_rank <- cleaning %>% 
+             count(user,
+                   name = "n_posts",
+                   sort = T) %>%  
+             mutate(rank = rank(-n_posts,
+                                ties.method = 'min'))
+             
+
+
 ```
 
 # Summary Visuals 
@@ -449,8 +459,11 @@ user_month %>%
         legend.position=c(.85,.75))
 ```
 
+Next, I break down the posts into two different formats for analysis: unigrams (one word phrases) and bigrams (two word phrases). This breaks each post into one observation per word-like-object in the post. A post that is originally one row and has 50 words in it becomes 50 rows, one per word (or two-word pair in the case of bigrams). 
 
-```{r Unnest into Unigram Tidy Text Format, cache=T}
+The unigram object is created below, and for the making the plot more readable I take only the top 50 most used words. Some words I manually correct for cognates and misspellings so that I do not have multiple observations per word. Many of these phrases also need to be condensed to one-word phrases, such as "National Socialism" or "Mein Kampf." The unigram framework treats these as two different words, but they certainly represent one concept together.
+
+```{r Unnest into Unigram Tidy Text Format, cache=T, message=F, warning=F}
 data("stop_words")
 library(SnowballC)
 
@@ -462,12 +475,16 @@ unigram <- cleaning %>%
                                              "ns") %>% 
                              str_replace_all("[Aa]dolf(\\s)*[Hh]itler[A-z]*",
                                              "hitler") %>% 
-                             str_replace_all(".*[Hh]itler",
-                                             "hitler") %>% 
-                             str_replace_all("[Hh]itler.*",
+                             str_replace_all("[Hh]itlers*",
                                              "hitler") %>%  
                              str_replace_all("[A-z]*[Mm]ein(\\s)*[Kk]ampf[A-z]*",
-                                             "meinkampf")) %>% 
+                                             "meinkampf") %>% 
+                             str_replace_all("[Nn]ationalis[tm]",
+                                             "national") %>% 
+                             str_replace_all("[A-z]*([Tt]hird|3rd)(\\s)*[Rr]eich[A-z]*",
+                                             "3rd_reich") %>% 
+                             str_replace_all("[Nn]azi",
+                                             "nazi")) %>% 
          unnest_tokens(word, 
                        text_clean) %>% 
          select(user, 
@@ -482,17 +499,18 @@ unigram <- unigram %>%
                 word_stem = ifelse(word == 'hitler' | word == 'ns' | word == 'meinkampf',
                                    as.character(word),
                                    word_stem))
-unigram_top50 <- unigram %>% 
+unigram_count <- unigram %>% 
                    count(word, sort = T) %>% 
-                   mutate(word = reorder(word, n)) %>% 
-                   slice(1:50) %>% 
+                   mutate(word = reorder(word, n)) %>%  
                    mutate(word_stem = wordStem(word),
                           word_stem = ifelse(word == 'hitler' | word == 'ns' | word == 'meinkampf',
                                              word,
                                              word_stem))
 ```
 
-```{r Unigram Frequency Chart, cache=T, echo=F, fig.width=20, fig.height=20 }
+The figure below shows the frequency of the 50 most commonly used words. Many of these results are unsurprising, "ns" is the top word, which is what I recoded to mean "national socialism". This is the name of the forum, so it is expected that it is one of the most commonly used words. The fact that this expectation is met offers at least some confidence that the topic of conversation within the forum remains on topic, rather than digressing into other things. Many of the words leftover have to do with race, such as "race", "white", "jewish", "aryan", and other similar references. This website is associated strongly with the Ku Klux Klan (KKK) and other far-right white-extremist racist ideologies. Much of the content of this thread is morally reprehensible and vitriolic in its discussion of race. Other common phrases discuss themes of Nazi Germany (e.g. "hitler", "germany", "german"), nationalism, war, and politics. Surprisingly, any reference to the word "nazi" itself is not in the top 50 words, but manually searching the data suggests this is because of the many forms this can take, such as "neo-nazi", "nazism", and other forms. 
+
+```{r Unigram Frequency Chart Unstemmed, cache=T, echo=F, fig.width=20, fig.height=20 }
 unigram %>% 
   count(word, sort = T) %>% 
   mutate(word = reorder(word, n)) %>% 
@@ -509,7 +527,11 @@ unigram %>%
         axis.title = element_text(size = 30),
         title = element_text(size = 35), 
         plot.title = element_text(hjust = .5))
+```
 
+The following figure shows the stemmed unigram counterpart of the unigram chart above. Many of the unigrams are similar, but stemming the words allowed many new words to rise to the top. I stem the words using the SnowballC package. This will reduce words to their etymological stem. Now many words that refer to the same concept have the same stem, and are collapsed into a single bar in the chart. While these word frequency charts are difficult to get much inference from on their own, you can see that stemming the words increases the topic variety of the most used words. Note that "nazi" is now one of the top words but it was not before. The top 50 words are in a table in the appendix with their word stems next to them for curious readers.  
+
+```{r Unigram Frequency Chart Stemmed, cache=T, echo=F, fig.width=20, fig.height=20 }
 unigram %>% 
   count(word_stem, sort = T) %>% 
   mutate(word_stem = reorder(word_stem, n)) %>% 
@@ -530,7 +552,13 @@ unigram %>%
 
 ```
 
-```{r Unnest into Bigram Tidy Text Format, cache=T}
+```{r Unnest into Bigram Tidy Text Format, cache=T, message=F, warning=F}
+
+#Tidytext does not have the option to remove stop words from sentences, so I use qdap for this.
+library('qdap')
+data("Top200Words")
+
+#Remove stop words from sentences to make bigrams more meaningful and unnest into bigrams
 bigram <- cleaning %>% 
          mutate(text_clean = str_replace_all(text_nopunct, 
                                              "[Nn]ational\\s[Ss]ocialism[A-z]*", 
@@ -539,14 +567,19 @@ bigram <- cleaning %>%
                                              "ns") %>% 
                              str_replace_all("[Aa]dolf(\\s)*[Hh]itler[A-z]*",
                                              "hitler") %>% 
-                             str_replace_all(".*[Hh]itler",
-                                             "hitler") %>% 
-                             str_replace_all("[Hh]itler.*",
+                             str_replace_all("[Hh]itlers*",
                                              "hitler") %>%  
                              str_replace_all("[A-z]*[Mm]ein(\\s)*[Kk]ampf[A-z]*",
                                              "meinkampf") %>% 
                              str_replace_all("[Nn]ationalis[tm]",
-                                             "national")) %>% 
+                                             "national") %>% 
+                             str_replace_all("[A-z]*([Tt]hird|3rd)(\\s)*[Rr]eich[A-z]*",
+                                             "3rd_reich") %>% 
+                             str_replace_all("[Nn]azi",
+                                             "nazi") %>% 
+                             rm_stopwords(Top200Words, 
+                                                separate = FALSE)) %>% 
+
          unnest_tokens(bigram, 
                        text_clean,
                        token = "ngrams", 
@@ -557,6 +590,7 @@ bigram <- cleaning %>%
                 bigram,
                 id)
 
+#Use the tidytext way on the stop-word-removed data using the qdap approach. Similar Results. 
 bigram_split <- bigram %>% 
                 separate(bigram, c("word1", 
                                    "word2"), 
@@ -564,22 +598,281 @@ bigram_split <- bigram %>%
                          remove = F) %>% 
                 filter(!word1 %in% stop_words$word) %>% 
                 filter(!word1 %in% stop_words$word) %>% 
-                filter(!is.na(bigram))
-
-bigram_sorted <- bigram_split %>% 
+                filter(!is.na(bigram)) %>% 
           count(bigram, sort = T) %>% 
           mutate(bigram = reorder(bigram, n))
 
+#Count the frequency of bigrams and order them by frequency. 
+bigram_sorted <- bigram %>% 
+          count(bigram, sort = T) %>% 
+          mutate(bigram = reorder(bigram, n))
+```
+
+The bigram plot below offers a beter view of some of the topics discussed in the forum. The top bigrams are mostly related to Hitler, WWII Germany, nazism, and many forms of discussing National Socialism. They also discuss economic systems and many racial themes. Interestingly, some of the top bigrams are quite violent, such as "fight against" and "war against," both of which may be advocating war to change current political structures. If one were to read the actual forum it is relatively common that they advocate strong and radical political change through large scale wars as they believe it is the only way national socialism can take hold in the US. By far the most common phrases used have to do with different ways of depicting the white race, examples include: "white race", "white national(s)", "white nation," etc. If these represented one bar, that bar would double the current top phrase of "3rd Reich."  
+
+```{r Bigram Plot, cache=T, message=F, warning=F, fig.width=20, fig.height=20 }
 bigram_sorted %>% 
+  na.omit(bigram) %>% 
   slice(1:50) %>% 
   ggplot(aes(y = n,
              x = bigram)) +
   geom_col() +
   coord_flip() + 
-  theme_bw()
+  theme_bw() + 
+  labs(title = "Most Common Unstemmed Bigrams",
+       x = "Bigram",
+       y = "Frequency") +
+  theme(axis.text = element_text(size = 20),
+        axis.title = element_text(size = 30),
+        title = element_text(size = 35), 
+        plot.title = element_text(hjust = .5))
 ```
 
+# Sentiment Analysis 
+
+```{r Sentiment Analysis Setup, cache=T, warning=F, message=F}
+# Categorize into topics
+unigram_nrc <- get_sentiments('nrc') %>% 
+               filter(word != "white") %>% #white is neutral in this context
+               inner_join(unigram) %>% 
+               add_count(sentiment, 
+                         sort = T) %>% 
+               inner_join(user_rank)
+
+unigram_nrc_user<- get_sentiments('nrc') %>% 
+                   filter(word != "white") %>% #white is neutral in this context
+                   inner_join(unigram) %>% 
+                   group_by(user) %>% 
+                   add_count(sentiment, 
+                             sort = T) %>% 
+                   inner_join(user_rank)
+
+# Binary positive or negative
+unigram_bing <- inner_join(unigram, get_sentiments("bing")) %>% 
+                add_count(sentiment,
+                          name = "n_sent") %>% 
+                add_count(sentiment,
+                          index = id,
+                          name = "n_sent_id") %>% 
+                add_count(id, 
+                          name = "num_words") %>% 
+                inner_join(user_rank)
+
+# -5 to 5 negative to positive
+unigram_afinn <- inner_join(unigram, get_sentiments("afinn"))  %>% 
+                 group_by(id) %>% 
+                 separate(date,
+                          into = c('m', 'd', 'y'),
+                          sep = '-',
+                          remove = F) %>% 
+                 mutate(net_score = sum(score),
+                        date = as.Date(ISOdate(y, m, d))) %>% 
+                 select(user,
+                        date, 
+                        id,
+                        word,
+                        score,
+                        net_score) %>% 
+                 inner_join(user_rank)
+
+```
+
+```{r Sentiment Analysis NRC Plots, cache=T, warning=F, message=F, fig.height= 20, fig.width= 20}
+unigram_nrc %>% 
+  group_by(sentiment) %>% 
+  summarise(n = mean(n)) %>% 
+  ggplot(aes(x = sentiment,
+             y = n)) +
+  geom_col() + 
+  labs(title = "Overall NRC Sentiment Distribution", 
+       y = "Frequency",
+       x = "Sentiment") + 
+  theme_bw() + 
+  theme(axis.text = element_text(size = 20),
+        axis.text.x = element_text(angle = 45),
+        axis.title = element_text(size = 30),
+        title = element_text(size = 35), 
+        plot.title = element_text(hjust = .5))
+```
+
+
+```{r Sentiment Analysis Words per NRC Sentiment, cache=T, warning=F, message=F, fig.height= 60, fig.width= 20}
+unigram_nrc_breakdown <- unigram_nrc %>% 
+                         count(word, 
+                               sentiment,
+                               name = "n_words") %>%
+                         ungroup() %>% 
+                         group_by(sentiment) %>%
+                         top_n(10) %>%
+                         mutate(word = reorder(word, n_words))
+
+unigram_nrc_breakdown %>% 
+  ggplot(aes(y = n_words, 
+             x = word,
+             fill = sentiment)) + 
+  geom_col() +
+  coord_flip() +
+  facet_wrap(sentiment ~ .,
+             ncol = 1,
+             scales = "free_y") + 
+  labs(title = "Top Words per Sentiment", 
+       y = "Frequency",
+       x = "Word") + 
+  theme_bw() + 
+  theme(axis.text = element_text(size = 30),
+        axis.title = element_text(size = 30),
+        title = element_text(size = 35), 
+        plot.title = element_text(hjust = .5),
+        strip.text = element_text(size = 25),
+        legend.position = "none")
+```
+
+
+```{r Sentiment Analysis Top 10 Users NRC, cache=T, warning=F, message=F, fig.height= 20, fig.width= 20}
+unigram_nrc_user %>% 
+  group_by(user, sentiment) %>% 
+  summarise(rank = mean(rank),
+            n = mean(n)) %>% 
+  filter(rank <= 10) %>% 
+  ggplot(aes(x = sentiment,
+             y = n,
+             fill = user)) + 
+  geom_col() + 
+  coord_flip() +
+  facet_wrap(user ~ .,
+             ncol = 5) + 
+  labs(title = "NRC Sentiment Distribution among Top 10 Users", 
+       y = "Frequency",
+       x = "Sentiment") + 
+  theme_bw() + 
+  theme(axis.text = element_text(size = 30),
+        axis.title = element_text(size = 30),
+        title = element_text(size = 35), 
+        plot.title = element_text(hjust = .5),
+        strip.text = element_text(size = 25),
+        legend.position = "none")
+```
+
+
+```{r Sentiment Analysis Bing, cache=T, warning=F, message=F, fig.height= 5, fig.width= 5, fig.align='center'}
+unigram_bing %>% 
+  count(sentiment,
+        name = "n") %>% 
+  ggplot(aes(x = sentiment,
+             y = n)) +
+  geom_col() + 
+  labs(title = "Overall Bing Sentiment Distribution", 
+       y = "Frequency",
+       x = "Sentiment") + 
+  theme_bw() + 
+  theme(axis.text = element_text(size = 10),
+        axis.title = element_text(size = 15),
+        title = element_text(size = 15), 
+        plot.title = element_text(hjust = .5))
+```
+
+The following plots uses the "Bing" dictionary in the "tidytext" package to show the percent positive or percent negative within posts across the history of the forum. The first plot shows the posts aggregated by day, and the second plot shows the net postive-negative sentiment per post. Representing the forum by post has two advantages: it shows an alternative way to think of the forum's flow, and it removes the time gap in the middle to make the plot less elongated. Thinking about the forum in terms of one post following another may be an optimal way to view it. Whoever the most recent poster is, and whenever they are posting, always can see the most recent post even if it was several years ago. The time gap where the forum goes quiet for over a year in the plots above makes the observations of actual posts even harder to see. This plot is still quite difficult to make sense of, but it is better than if there was a large gap from days and months missing. 
+
+The net sentiment is the difference between the positive words in a post and the negative words in the post. For the sake of comparison I reduce the positive and negative sentiment of each post to a percentage, with the total number of sentiment-oriented words as the denominator. $net\,sentiment =\frac{positive\,words}{total\,sentiment\,words} - \frac{negative\,words}{total\,sentiment\,words}$ I only include emotionally charged words in this analysis so that I can determine if a post is mostly negative or mostly postive inasmuch as it is either negative or positive. It would also be reasonable to consider the total non-stop-words as the denominator. 
+
+The plots using the Bing dictionary seem to suggest that most days, and indeed most posts, are characterized by being mostly negative, or mostly positive. 
+
+```{r Sentiment Analysis Bing Over Time, cache=T, warning=F, echo=F, message=F, fig.height= 30, fig.width= 60}
+#Net sentiment per day
+unigram_bing %>% 
+  separate(date,
+           into = c('m', 'd', 'y'),
+           sep = '-',
+           remove = F) %>% 
+  mutate(date = as.Date(ISOdate(y, m, d)),
+         ym = paste0(y,"-", m)) %>% 
+  right_join(timeline_daily) %>% 
+  group_by(date, sentiment) %>% 
+  summarise(n_sent = sum(n_sent_id)) %>% 
+  spread(sentiment, n_sent) %>% 
+  mutate(positive = ifelse(!is.na(positive),
+                          positive,
+                          0),
+         negative = ifelse(!is.na(negative),
+                           negative,
+                           0),
+         net = positive - negative,
+         total = positive + negative, 
+         percent_positive = positive / total,
+         percent_positive = ifelse(!is.nan(percent_positive),
+                                   percent_positive,
+                                   0),
+         percent_negative = negative / total,
+         percent_negative = ifelse(!is.nan(percent_negative),
+                                   percent_negative,
+                                   0),
+         net_percent = percent_positive - percent_negative) %>% 
+  ggplot(aes(x = date,
+             y = net_percent)) + 
+  geom_col()  +
+  scale_x_date(date_breaks = "3 month",
+               date_labels = "%Y %B") + 
+  labs(title = "Bing Net Sentiment Analysis - Daily",
+       y = "Net Negative          Net Positive",
+       x = "Month") + 
+  theme_bw() + 
+  theme(axis.text = element_text(size = 50),
+        axis.text.x = element_text(angle = 90),
+        axis.title = element_text(size = 60),
+        title = element_text(size = 65), 
+        plot.title = element_text(hjust = .5))
+  
+#Net sentiment per post
+unigram_bing %>% 
+  add_count(word,
+            id,
+            name = "length") %>% 
+  group_by(id, sentiment) %>% 
+  summarise(n_sent = sum(n_sent_id),
+            length = mean(length)) %>% 
+  spread(sentiment, n_sent) %>% 
+  ungroup() %>% 
+  group_by(id) %>% 
+  summarise(positive = mean(positive),
+            negative = mean(negative)) %>% 
+  mutate(positive = ifelse(!is.na(positive),
+                          positive,
+                          0),
+         negative = ifelse(!is.na(negative),
+                           negative,
+                           0),
+         net = positive - negative,
+         total = positive + negative, 
+         percent_positive = positive / total,
+         percent_positive = ifelse(!is.nan(percent_positive),
+                                   percent_positive,
+                                   0),
+         percent_negative = negative / total,
+         percent_negative = ifelse(!is.nan(percent_negative),
+                                   percent_negative,
+                                   0),
+         net_percent = percent_positive - percent_negative) %>%  
+  ungroup() %>% 
+  ggplot(aes(x = id,
+             y = net_percent)) + 
+  geom_col() +
+  annotate('text',
+           label = "55.38% of posts are mostly negative or mostly positive",
+           size = 35,
+           x = 2500,
+           y = -1.05) +
+  labs(title = "Bing Net Sentiment Analysis - Per Post",
+       y = "Net Negative          Net Positive",
+       x = "Post Number") + 
+  theme_bw() + 
+  theme(axis.text = element_text(size = 50),
+        axis.title = element_text(size = 60),
+        title = element_text(size = 65), 
+        plot.title = element_text(hjust = .5))
+```
+
+
 ```{r Unigram Word and Word Stem comparison table }
-knitr::kable(unigram_top50 %>% select(-n))
+knitr::kable(unigram_count[1:50,] %>% select(-n))
 ```
 
