@@ -12,8 +12,10 @@ stringr
 forcats
 tidytext
 SnowballC
-RColorBrewer
 qdapDictionaries
 qdapRegex
 qdapTools
+RColorBrewer
 qdap
+topicmodels
+tictoc

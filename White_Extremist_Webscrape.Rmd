@@ -5,14 +5,13 @@ date: "5/14/2019"
 output: html_document
 ---
 
-```{r setup, include=FALSE, cache=T}
+```{r setup, include=FALSE, cache=F}
 knitr::opts_chunk$set(echo = TRUE)
 
 library(rvest)
 library(tidyverse)
 library(tidytext)
 library(stringr)
-library(RColorBrewer)
 ```  
   
 # Scrape the Data 
@@ -777,7 +776,7 @@ The net sentiment is the difference between the positive words in a post and the
 
 The plots using the Bing dictionary seem to suggest that most days, and indeed most posts, are characterized by being mostly negative, or mostly positive. 
 
-```{r Sentiment Analysis Bing Over Time, cache=T, warning=F, echo=F, message=F, fig.height= 30, fig.width= 60}
+```{r Sentiment Analysis Bing Over Time daily, cache=T, warning=F, echo=F, message=F, fig.height= 30, fig.width= 60}
 #Net sentiment per day
 unigram_bing %>% 
   separate(date,
@@ -809,7 +808,7 @@ unigram_bing %>%
          net_percent = percent_positive - percent_negative) %>% 
   ggplot(aes(x = date,
              y = net_percent)) + 
-  geom_col()  +
+  geom_col(width = 5)  +
   scale_x_date(date_breaks = "3 month",
                date_labels = "%Y %B") + 
   labs(title = "Bing Net Sentiment Analysis - Daily",
@@ -821,7 +820,10 @@ unigram_bing %>%
         axis.title = element_text(size = 60),
         title = element_text(size = 65), 
         plot.title = element_text(hjust = .5))
-  
+```
+
+
+```{r Sentiment Analysis Bing Over Time per post, cache=T, warning=F, echo=F, message=F, fig.height= 30, fig.width= 60}
 #Net sentiment per post
 unigram_bing %>% 
   add_count(word,
@@ -855,7 +857,7 @@ unigram_bing %>%
   ungroup() %>% 
   ggplot(aes(x = id,
              y = net_percent)) + 
-  geom_col() +
+  geom_col(width = 3) +
   annotate('text',
            label = "55.38% of posts are mostly negative or mostly positive",
            size = 35,
@@ -872,7 +874,376 @@ unigram_bing %>%
 ```
 
 
-```{r Unigram Word and Word Stem comparison table }
+```{r Sentiment Analysis Bing Over Time daily, cache=T, warning=F, echo=F, message=F, fig.height= 30, fig.width= 60}
+```
+
+```{r afinn Sentiment Analysis daily, cache=T, echo=F, warning=F, message=F, fig.width=50, fig.height=30}
+#Net sentiment per day
+unigram_afinn %>% 
+  separate(date,
+           into = c('y', 'm', 'd'),
+           sep = '-',
+           remove = F) %>% 
+  mutate(date = as.Date(ISOdate(y, m, d))) %>% 
+  group_by(date, id) %>% 
+  summarise(net_sentiment = mean(net_score),
+            user = first(user)) %>% 
+  right_join(timeline_daily) %>% 
+  ungroup() %>% 
+  group_by(date) %>% 
+  summarise(net_sentiment = sum(net_sentiment),
+            net_sentiment = ifelse(!is.na(net_sentiment),
+                                   net_sentiment,
+                                   0))%>% 
+  ggplot(aes(x = date,
+             y = net_sentiment)) + 
+  geom_col(width = 5)  +
+  scale_x_date(date_breaks = "3 month",
+               date_labels = "%Y %B") + 
+  labs(title = "AFINN Net Sentiment Analysis - Daily",
+       y = "Net Negative          Net Positive",
+       x = "Month") + 
+  theme_bw() + 
+  theme(axis.text = element_text(size = 50),
+        axis.text.x = element_text(angle = 90),
+        axis.title.y = element_text(hjust = .6),
+        axis.title = element_text(size = 60),
+        title = element_text(size = 65), 
+        plot.title = element_text(hjust = .5))
+```
+
+
+```{r afinn Sentiment Analysis per post, cache=T, echo=F, warning=F, message=F, fig.width=50, fig.height=30}
+#Net sentiment per post
+unigram_afinn %>%
+  group_by(id) %>% 
+  summarise(net_sentiment = mean(net_score),
+            user = first(user)) %>%
+  ggplot(aes(x = id,
+             y = net_sentiment)) + 
+  geom_col(width = 10) +
+  scale_x_continuous(limits = c(0, 5000)) +
+  labs(title = "AFINN Net Sentiment Analysis - Per Post",
+       y = "Net Negative          Net Positive",
+       x = "Month") + 
+  theme_bw() + 
+  theme(axis.text = element_text(size = 50),
+        axis.text.x = element_text(angle = 90),
+        axis.title = element_text(size = 60),
+        title = element_text(size = 65),
+        plot.title = element_text(hjust = .5))
+```
+
+```{r LDA setup, cache=T, warning=F, message=F, echo=F}
+library(topicmodels)
+unigram_dtm <- unigram %>% 
+               group_by(id) %>% 
+               add_count(word) %>% 
+               select(id, word, n) %>% 
+               cast_dtm(id, word, n)
+
+length(unique(unigram$word)) #41,164 unique words
+dim(unigram_dtm)
+
+bigram_dtm <- bigram %>% 
+               group_by(id) %>% 
+               add_count(bigram) %>% 
+               select(id, bigram, n) %>% 
+               cast_dtm(id, bigram, n)
+
+length(unique(bigram$bigram)) #278,597 unique bigrams
+dim(bigram_dtm)
+```
+
+Next I estimate several Latent Dirichlet allocation [(LDA)](http://www.jmlr.org/papers/volume3/blei03a/blei03a.pdf) models for each the unigram and the bigram dataframes created and visualized above. LDA models are an unsupervised machine learning tool to identify topics within text based on the frequency with which words appear together and separately. Consider that all bodies of text are made up of topics, and all topics are made up of a particular mixture of words, LDA analysis tries to identify topics based on the distribution of words within and between documents. 
+
+I vary the models below by changing the parameter, 'k.' This is the number of topics that define the multinomial distribution the LDA model uses while estimating. The larger the k, the more topics the LDA will generate, and thus the more potential nuance uncovered in the discussion. However, in the context of these posts it would be easy to overfit the corpus of text because the posts are all different lengths, some much much longer than others. Smaller posts have less opportunity to discuss any topic than longer posts. In these preliminary analyses I ignore these concerns, but keep them in mind as a secondary step of analysis. I estimate with k values of 1, 2, 3, 4, 5, and 10 for each the unigram data and the bigram data.
+
+```{r Unigram LDA, cache=T, warning=F, message=T}
+library(tictoc)
+
+tic()
+unigram_lda2 <- LDA(unigram_dtm,
+                    k = 2,
+                    control = list(seed = 7117))
+toc()
+
+tic()
+unigram_lda3 <- LDA(unigram_dtm, 
+                    k = 3,
+                    control = list(seed = 7117))
+toc()
+
+tic()
+unigram_lda4 <- LDA(unigram_dtm, 
+                    k = 4,
+                    control = list(seed = 7117))
+toc()
+
+tic()
+unigram_lda5 <- LDA(unigram_dtm,
+                    k = 5,
+                    control = list(seed = 7117))
+toc()
+
+tic()
+unigram_lda10 <- LDA(unigram_dtm,
+                     k = 10,
+                    control = list(seed = 7117))
+toc()
+```
+
+```{r bigram LDA, cache=T, warning=F, message=T}
+set.seed(7117)
+
+tic()
+bigram_lda2 <- LDA(bigram_dtm,
+                    k = 2,
+                    control = list(seed = 7117))
+toc()
+
+tic()
+bigram_lda3 <- LDA(bigram_dtm, 
+                    k = 3,
+                    control = list(seed = 7117))
+toc()
+
+tic()
+bigram_lda4 <- LDA(bigram_dtm, 
+                    k = 4,
+                    control = list(seed = 7117))
+toc()
+
+tic()
+bigram_lda5 <- LDA(bigram_dtm,
+                    k = 5,
+                    control = list(seed = 7117))
+toc()
+
+tic()
+bigram_lda10 <- LDA(bigram_dtm,
+                     k = 10,
+                    control = list(seed = 7117))
+toc()
+```
+
+The two topic LDA model is represented visually below. The first plot shows the top 30 unigrams in each topic and their beta value. The beta value is the probability that a word is generated from a topic. NS has about a 0.024% chance of coming from topic 1, but only a 0.005% chance coming from topic 2, as an example. In the context of two topics it seems insufficient to determine what the topics represent. It is noteworthy that the top words of each overlap quite a bit. Overlapping words include: germany, jews, jewish, world, race, ns, political, government, and others. It is plausible that topic one is more referential to the present state of the NS movement, while topic two is more focused on the state of the NS movement during the times of Nazi Germany and WWII. Or, topic two may be more defined by the German experience with NS because some of the top words such as "der" and "die" are German articles, indicating they paired with a German noun and referenced something from Germany. Another possible label for each topic is that topic one could be more associated with the ideological roots of national socialism and discussing those who its primary enemies, while the second topic seems to have more words discussing economic conditions and ideology. 
+  
+```{r Unigram LDA 2 Analysis A, include = T, cache=T, warning=F, message=T, echo=T, fig.width=20, fig.height=20}
+
+u_lda2_topics <- tidytext::tidy(unigram_lda2)
+
+u_lda2_topics %>% 
+  group_by(topic) %>% 
+  top_n(30, beta) %>% 
+  ungroup() %>% 
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free_y") +
+  coord_flip() +
+  labs(title = "Top 30 Unigrams per Topic",
+       x = "Unigram",
+       y = "Beta") + 
+  theme(axis.title = element_text(size = 35),
+        title = element_text(size = 40),
+        plot.title = element_text(hjust = .5),
+        axis.text = element_text(size = 30),
+        strip.text = element_text(size = 30))
+```
+
+The second plot that compares the beta's of the two topics illuminates the story of the two topic LDA a little more. The words most associated with topic two (values greater than zero), are indeed more associated with wartime Germany themes. Topic one now seems to be differentiated by being more ideologically focused. Topic two is certainly more focused on economic concepts, with words like capitalism, money, economics, demand, workers, and other being far more associated with topic two than topic one. Topic one, on the other hand, does seem much more ideologically focused, specifically on white christian topics that they believe are associated with Germany. 
+
+```{r Unigram LDA 2 Analysis B, include = T, cache=T, warning=F, message=T, echo=T, fig.width=20, fig.height=20}
+
+u_lda2_topics %>% 
+  mutate(topic = paste0("topic", topic)) %>%
+  spread(topic, beta) %>%
+  filter(topic1 > .001 | topic2 > .001) %>%
+  mutate(frac = topic2 / topic1,
+         log_ratio = log2(frac)) %>%
+  top_n(40, abs(log_ratio)) %>% 
+  ungroup() %>% 
+  mutate(term = reorder(term, log_ratio)) %>% 
+  ggplot(aes(y = log_ratio,
+             x = term)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Log2 Ratio of Betas Topic 2 / Topic 1",
+       x = "Unigram",
+       y = "Log2(Beta2/Beta1)") +
+  theme(axis.title = element_text(size = 35),
+        title = element_text(size = 40),
+        plot.title = element_text(hjust = .5),
+        axis.text = element_text(size = 30))
+
+```
+
+```{r Leftover Unigram LDA, eval=F, include=F}
+u_lda3_topics <- tidy(unigram_lda3,
+                      matrix = "beta")
+
+u_lda4_topics <- tidy(unigram_lda4,
+                      matrix = "beta")
+```
+
+```{r Unigram LDA 5 A, cache=T, echo=F, warning=F, message=F, fig.width=20, fig.height=30}
+u_lda5_topics <- tidy(unigram_lda5,
+                      matrix = "beta") %>% 
+                 group_by(topic) %>% 
+                 ungroup() %>% 
+                 mutate(term = reorder(term, beta))
+
+u_lda5_topics %>% 
+  group_by(topic) %>% 
+  top_n(30, beta) %>% 
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(x = term,
+             y = beta,
+             fill = topic)) + 
+  geom_col(show.legend = F) +
+  facet_wrap(~topic, 
+             scales = 'free_y',
+             ncol = 2) + 
+  coord_flip() +
+  labs(title = "Unigram LDA Analysis",
+       y = "Beta",
+       x = "Unigram",
+       caption = "k = 2") + 
+  theme(axis.title = element_text(size = 35),
+        title = element_text(size = 40),
+        plot.title = element_text(hjust = .5),
+        axis.text = element_text(size = 30),
+        strip.text = element_text(size = 25))
+
+# u_lda5_topics %>% 
+#   mutate(topic = paste0("topic", topic)) %>%
+#   spread(topic, beta) %>%
+#   filter(topic1 > .001 | topic2 > .001) %>%
+#   mutate(log_ratio = log2(topic2 / topic1)) %>%
+#   top_n(30, abs(log_ratio)) %>% 
+#   ungroup() %>% 
+#   mutate(term = reorder(term, log_ratio)) %>% 
+#   ggplot(aes(y = log_ratio,
+#              x = term)) + 
+#   geom_col(show.legend = F) + 
+#   coord_flip() +
+#   labs(title = "Log2 Ratio of Betas Topic 2 / Topic 1",
+#        x = "Unigram",
+#        y = "Log2(Beta2/Beta1)") + 
+#   theme(axis.title = element_text(size = 35),
+#         title = element_text(size = 40),
+#         plot.title = element_text(hjust = .5),
+#         axis.text = element_text(size = 30))
+```
+
+```{r Unigram LDA 5 B Setup, cache=T, echo=F, warning=F, message=F, fig.width=20, fig.height=30}
+u_lda5_comparison <- u_lda5_topics %>% 
+  mutate(topic = paste0("topic", topic)) %>%
+  spread(topic, beta) %>% 
+  uncount(5) %>% 
+  group_by(term) %>% 
+  mutate(topic = seq(1:5)) %>% 
+  uncount(ifelse(topic == 5, 
+                 4,
+                 1)) %>% 
+  uncount(ifelse(topic == 4, 
+                 3,
+                 1)) %>% 
+  uncount(ifelse(topic == 3, 
+                 2, 
+                 1)) %>% 
+  mutate(pair = ifelse(topic == 5, 
+                       seq(1, 4), 
+                       NA),
+         pair = ifelse(topic == 4,
+                       seq(1, 3),
+                       pair),
+         pair = ifelse(topic == 3,
+                       seq(1, 2),
+                       pair), 
+         pair = ifelse(topic == 2,
+                       1,
+                       pair),
+         pair_id = paste0("Topic ", 
+                          pair, 
+                          " - Topic ",
+                          topic),
+         pair_numeric = paste0(topic,
+                               pair)) %>% 
+  filter(!is.na(pair) & (topic1 > .001 | 
+                           topic2 > .001 |
+                           topic3 > .001 |
+                           topic4 > .001 |
+                           topic5 > .001)) %>% 
+  ungroup() %>% 
+  mutate(beta_comp = ifelse(pair_numeric == 54,
+                          log2(topic5/topic4),
+                          NA),
+         beta_comp = ifelse(pair_numeric == 53,
+                          log2(topic5/topic3),
+                          beta_comp),
+         beta_comp = ifelse(pair_numeric == 52,
+                          log2(topic5/topic3),
+                          beta_comp),
+         beta_comp = ifelse(pair_numeric == 51,
+                          log2(topic5/topic1),
+                          beta_comp),
+         beta_comp = ifelse(pair_numeric == 43,
+                          log2(topic4/topic3),
+                          beta_comp),
+         beta_comp = ifelse(pair_numeric == 42,
+                          log2(topic4/topic2),
+                          beta_comp),
+         beta_comp = ifelse(pair_numeric == 41,
+                          log2(topic4/topic1),
+                          beta_comp),
+         beta_comp = ifelse(pair_numeric == 32,
+                          log2(topic3/topic2),
+                          beta_comp),
+         beta_comp = ifelse(pair_numeric == 31,
+                          log2(topic3/topic1),
+                          beta_comp),
+         beta_comp = ifelse(pair_numeric == 21,
+                          log2(topic2/topic1),
+                          beta_comp))
+  
+```
+
+```{r Unigram LDA 5 B, cache=T, echo=F, warning=F, message=F, fig.width=30, fig.height=60}
+u_lda5_comparison %>% 
+  group_by(pair_id) %>% 
+  top_n(30, abs(beta_comp)) %>% 
+  select(term,
+         beta_comp) %>% 
+  mutate(term = reorder(term, 
+                        beta_comp)) %>% 
+   ggplot(aes(x = term,
+             y = beta_comp,
+             fill = pair_id)) + 
+  geom_col(show.legend = F) +
+  facet_wrap(~pair_id, 
+             scales = 'free',
+             ncol = 2) + 
+  coord_flip() +
+  labs(title = "Unigram LDA Analysis - 5 Topic Model",
+       y = "Beta",
+       x = "Unigram",
+        caption = "k = 5") + 
+  theme(axis.title = element_text(size = 45),
+        title = element_text(size = 50),
+        plot.title = element_text(hjust = .5),
+        axis.text = element_text(size = 40),
+        strip.text = element_text(size = 35))
+```
+
+```{r Unigram LDA 10, cache=T, echo=F, warning=F, message=F}
+u_lda10_topics <- tidy(unigram_lda10,
+                      matrix = "beta")
+```
+
+
+```{r Unigram Word and Word Stem comparison table, cache=T }
 knitr::kable(unigram_count[1:50,] %>% select(-n))
 ```
 
