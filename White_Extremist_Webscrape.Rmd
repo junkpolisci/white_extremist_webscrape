@@ -957,7 +957,7 @@ dim(bigram_dtm)
 
 Next I estimate several Latent Dirichlet allocation [(LDA)](http://www.jmlr.org/papers/volume3/blei03a/blei03a.pdf) models for each the unigram and the bigram dataframes created and visualized above. LDA models are an unsupervised machine learning tool to identify topics within text based on the frequency with which words appear together and separately. Consider that all bodies of text are made up of topics, and all topics are made up of a particular mixture of words, LDA analysis tries to identify topics based on the distribution of words within and between documents. 
 
-I vary the models below by changing the parameter, 'k.' This is the number of topics that define the multinomial distribution the LDA model uses while estimating. The larger the k, the more topics the LDA will generate, and thus the more potential nuance uncovered in the discussion. However, in the context of these posts it would be easy to overfit the corpus of text because the posts are all different lengths, some much much longer than others. Smaller posts have less opportunity to discuss any topic than longer posts. In these preliminary analyses I ignore these concerns, but keep them in mind as a secondary step of analysis. I estimate with k values of 1, 2, 3, 4, 5, and 10 for each the unigram data and the bigram data.
+I vary the models below by changing the parameter, 'k.' This is the number of topics that define the multinomial distribution the LDA model uses while estimating. The larger the k, the more topics the LDA will generate, and thus the more potential nuance uncovered in the discussion. However, in the context of these posts it would be easy to overfit the corpus of text because the posts are all different lengths, some much much longer than others. Smaller posts have less opportunity to discuss any topic than longer posts. In these preliminary analyses I ignore these concerns, but keep them in mind as a secondary step of analysis. I estimate with k values of 2, and 5 with the unigram data, and 2 and 3 with the bigram data.
 
 ```{r Unigram LDA, cache=T, warning=F, message=T}
 library(tictoc)
@@ -969,33 +969,13 @@ unigram_lda2 <- LDA(unigram_dtm,
 toc()
 
 tic()
-unigram_lda3 <- LDA(unigram_dtm, 
-                    k = 3,
-                    control = list(seed = 7117))
-toc()
-
-tic()
-unigram_lda4 <- LDA(unigram_dtm, 
-                    k = 4,
-                    control = list(seed = 7117))
-toc()
-
-tic()
 unigram_lda5 <- LDA(unigram_dtm,
                     k = 5,
-                    control = list(seed = 7117))
-toc()
-
-tic()
-unigram_lda10 <- LDA(unigram_dtm,
-                     k = 10,
                     control = list(seed = 7117))
 toc()
 ```
 
 ```{r bigram LDA, cache=T, warning=F, message=T}
-set.seed(7117)
-
 tic()
 bigram_lda2 <- LDA(bigram_dtm,
                     k = 2,
@@ -1005,24 +985,6 @@ toc()
 tic()
 bigram_lda3 <- LDA(bigram_dtm, 
                     k = 3,
-                    control = list(seed = 7117))
-toc()
-
-tic()
-bigram_lda4 <- LDA(bigram_dtm, 
-                    k = 4,
-                    control = list(seed = 7117))
-toc()
-
-tic()
-bigram_lda5 <- LDA(bigram_dtm,
-                    k = 5,
-                    control = list(seed = 7117))
-toc()
-
-tic()
-bigram_lda10 <- LDA(bigram_dtm,
-                     k = 10,
                     control = list(seed = 7117))
 toc()
 ```
@@ -1052,7 +1014,9 @@ u_lda2_topics %>%
         strip.text = element_text(size = 30))
 ```
 
-The second plot that compares the beta's of the two topics illuminates the story of the two topic LDA a little more. The words most associated with topic two (values greater than zero), are indeed more associated with wartime Germany themes. Topic one now seems to be differentiated by being more ideologically focused. Topic two is certainly more focused on economic concepts, with words like capitalism, money, economics, demand, workers, and other being far more associated with topic two than topic one. Topic one, on the other hand, does seem much more ideologically focused, specifically on white christian topics that they believe are associated with Germany. 
+The second plot that compares the beta's of the two topics illuminates the story of the two topic LDA a little more. The words that are more associated with topic two than topic one are more associated with economics, structure, and community. Words of economic processes, such as demand, production, economy, money, strongly relate to economic themes. Words relating to structure include democracy, systems, nation, country, rights, property, among others. Some of these structure words also relate to community, but most explicit are the words community and children. 
+
+Topic one themes seem to focus on Christianity as it relates to nazism, but given the prevalence of meaningless German articles and conjunctions it is difficult to assess the meaning of this group beyond the discussion above. This group does seem to have more discussion in actual German. 
 
 ```{r Unigram LDA 2 Analysis B, include = T, cache=T, warning=F, message=T, echo=T, fig.width=20, fig.height=20}
 
@@ -1079,13 +1043,15 @@ u_lda2_topics %>%
 
 ```
 
-```{r Leftover Unigram LDA, eval=F, include=F}
-u_lda3_topics <- tidy(unigram_lda3,
-                      matrix = "beta")
+The next two plots show the visual results of the LDA analysis with 5 topics. Given the purpose this analysis is primary exploratory without the goal of estimating the absolute best models in this iteration I estimate a 5 topic LDA model just to see what it looks like and how it differs. Surprisingly, the results suggest that there are not very distinct topics within this forum. Perhaps this is unsurprising: white supremacists are the primary users, and the purpose of this particular forum is to discuss national socialism, which has its roots in WWII era Germany. Thus, most topics generated below focus on this time period, and have a slightly different angle on this topic. 
 
-u_lda4_topics <- tidy(unigram_lda4,
-                      matrix = "beta")
-```
+The first plot below shows the most popular 30 unigrams by highest beta values per topic. Topic one discusses nationalism socialism with the juxtaposition of words such as white, jewish, and aryan. It is clear that a central theme here is race and heritage, but also religion and the nazi agenda in WWII. 
+
+Topic two has a stronger focus on Germany, and uses many words referring to structure, the white race, and nature. It follows that a plausible theme for this topic is the idea that it is natural for the power structure to focus on the white race, and not allocate power outside of the white race. 
+
+Topic three seems to have a more general discussion of economic and political systems in America and Germany. It does not have rather specific words discussing power structures, but it does include communism, socialist, and captialism. This indicates that this topic is more focused on economic systems in general, rather than the power structure themes present in the top words in topic two. 
+
+Topic four is quite difficult to discern a topic. The only two themes that are represented by multiple words are Jewish people, and Hitler's 3rd Reich War. Topic five similarly has themes focused on a discussion of the history of Nazi Germany and the violence against Jews. 
 
 ```{r Unigram LDA 5 A, cache=T, echo=F, warning=F, message=F, fig.width=20, fig.height=30}
 u_lda5_topics <- tidy(unigram_lda5,
@@ -1116,26 +1082,12 @@ u_lda5_topics %>%
         axis.text = element_text(size = 30),
         strip.text = element_text(size = 25))
 
-# u_lda5_topics %>% 
-#   mutate(topic = paste0("topic", topic)) %>%
-#   spread(topic, beta) %>%
-#   filter(topic1 > .001 | topic2 > .001) %>%
-#   mutate(log_ratio = log2(topic2 / topic1)) %>%
-#   top_n(30, abs(log_ratio)) %>% 
-#   ungroup() %>% 
-#   mutate(term = reorder(term, log_ratio)) %>% 
-#   ggplot(aes(y = log_ratio,
-#              x = term)) + 
-#   geom_col(show.legend = F) + 
-#   coord_flip() +
-#   labs(title = "Log2 Ratio of Betas Topic 2 / Topic 1",
-#        x = "Unigram",
-#        y = "Log2(Beta2/Beta1)") + 
-#   theme(axis.title = element_text(size = 35),
-#         title = element_text(size = 40),
-#         plot.title = element_text(hjust = .5),
-#         axis.text = element_text(size = 30))
+
 ```
+
+The plot below is an attempt to show a comparison of beta's for each word between each topic. With 5 topics, there are 10 (undirected) combinations of each topic. Obviously, juxtaposing the betas for each word of one topic with each word of each other topic cannot be done in one graph. I manually expand the dataframe by ten, and make beta-comparison pairs for all possible combinations. In each pair, I conduct the same comparison as above: log2 of the quotient of the beta from the two comparing topics. In each instance, the larger numbered topic is the numerator, and the smaller numbered topic is the denominator. Topic 5 is always in the numerator, and topic 1 is always in denominator. Also, the titles represent how the models should be interpreted. The subplot titled "Topic 1 - Topic 2" is interpreted as all values less than zero have larger betas, and thus a larger probability of being generated from, topic 1. All values greater than zero belong more to topic 2. 
+
+It is my opinion that these plots proove mostly useless in this execution. While the plots above have a reasonable amount of variation between the top words in each plot, comparing the plots produces mostly the same set of words that distinguish each topics. Notably, the years 1932 and 1937, the words: forum, munich, nazism, billion, army, folks, and ns are almost all present in at least one subplot distinguishing one topic from some other topic. So, if these plot suggest the same words distinguish each topic from some other topic, then those words do not effectively distinguish any topics. 
 
 ```{r Unigram LDA 5 B Setup, cache=T, echo=F, warning=F, message=F, fig.width=20, fig.height=30}
 u_lda5_comparison <- u_lda5_topics %>% 
@@ -1210,7 +1162,7 @@ u_lda5_comparison <- u_lda5_topics %>%
   
 ```
 
-```{r Unigram LDA 5 B, cache=T, echo=F, warning=F, message=F, fig.width=30, fig.height=60}
+```{r Unigram LDA 5 B, cache=T, echo=F, warning=F, message=F, fig.width=30, fig.height=80}
 u_lda5_comparison %>% 
   group_by(pair_id) %>% 
   top_n(30, abs(beta_comp)) %>% 
@@ -1233,13 +1185,67 @@ u_lda5_comparison %>%
   theme(axis.title = element_text(size = 45),
         title = element_text(size = 50),
         plot.title = element_text(hjust = .5),
-        axis.text = element_text(size = 40),
+        axis.text = element_text(size = 45),
         strip.text = element_text(size = 35))
 ```
 
-```{r Unigram LDA 10, cache=T, echo=F, warning=F, message=F}
-u_lda10_topics <- tidy(unigram_lda10,
-                      matrix = "beta")
+```{r Bigram LDA 2 Analysis A, include = T, cache=T, warning=F, message=T, echo=T, fig.width=20, fig.height=20}
+
+b_lda2_topics <- tidytext::tidy(bigram_lda2)
+
+b_lda2_topics %>% 
+  group_by(topic) %>% 
+  top_n(30, beta) %>% 
+  ungroup() %>% 
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free_y") +
+  coord_flip() +
+  labs(title = "Top 30 Bigrams per Topic",
+       x = "Unigram",
+       y = "Beta") + 
+  theme(axis.title = element_text(size = 35),
+        title = element_text(size = 40),
+        plot.title = element_text(hjust = .5),
+        axis.text = element_text(size = 30),
+        strip.text = element_text(size = 30))
+```
+
+```{r Bigram LDA 2 Analysis B, include = T, cache=T, warning=F, message=T, echo=T, fig.width=20, fig.height=20}
+
+top_beta_comp <- b_lda2_topics %>% 
+  mutate(topic = paste0("topic", topic)) %>%
+  spread(topic, beta) %>%
+  mutate(frac = topic2 / topic1,
+         log_ratio = log2(frac)) %>%
+  top_n(20, log_ratio) %>% 
+  ungroup() %>% 
+  mutate(term = reorder(term, log_ratio))
+
+bottom_beta_comp <- b_lda2_topics %>% 
+  mutate(topic = paste0("topic", topic)) %>%
+  spread(topic, beta) %>%
+  mutate(frac = topic2 / topic1,
+         log_ratio = log2(frac)) %>%
+  top_n(20, -log_ratio) %>% 
+  ungroup() %>% 
+  mutate(term = reorder(term, log_ratio))
+
+rbind(top_beta_comp, bottom_beta_comp) %>% 
+  mutate(term = reorder(term, log_ratio)) %>% 
+  ggplot(aes(y = log_ratio,
+             x = term)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Log2 Ratio of Betas Topic 2 / Topic 1",
+       x = "Bigram",
+       y = "Log2(Beta2/Beta1)") +
+  theme(axis.title = element_text(size = 35),
+        title = element_text(size = 40),
+        plot.title = element_text(hjust = .5),
+        axis.text = element_text(size = 30))
+
 ```
 
 
